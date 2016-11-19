@@ -1,18 +1,12 @@
 package com.threeandahalfroses.aws.ddb.loader;
 
-import com.amazonaws.regions.Region;
-import com.amazonaws.regions.Regions;
 import com.amazonaws.services.dynamodbv2.document.DynamoDB;
 import com.amazonaws.services.dynamodbv2.document.Item;
 import com.google.common.io.Files;
-import com.threeandahalfroses.commons.aws.s3.S3Utility;
-import com.threeandahalfroses.commons.general.JSONUtility;
 import org.apache.commons.csv.CSVRecord;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.json.simple.JSONObject;
-import org.json.simple.parser.ParseException;
 
 import java.io.*;
 
@@ -91,20 +85,17 @@ public class EnterpriseLoader extends BaseDataLoader {
         }
     }
 
-    public EnterpriseLoader(DynamoDB dynamodb, CsvReaderSource csvReaderSource) {
-        super(dynamodb, csvReaderSource);
+    public EnterpriseLoader(
+            DynamoDB dynamodb,
+            CsvReaderSource csvReaderSource,
+            LoaderStateStore loaderStateStore
+            ) {
+        super(
+                dynamodb,
+                csvReaderSource,
+                loaderStateStore
+        );
     }
-
-    @Override
-    protected PreviousState loadPreviousState() throws IOException, ParseException {
-        return new PreviousState((JSONObject) JSONUtility.toJSONAware(S3Utility.getReader(Region.getRegion(Regions.EU_CENTRAL_1), "quitus-base", "enterprise-load-state.json")));
-    }
-
-    @Override
-    protected void savePreviousState(PreviousState previousState) throws IOException {
-        S3Utility.save(previousState.toJSONString(), Region.getRegion(Regions.EU_CENTRAL_1), "quitus-base", "enterprise-load-state.json", null, null);
-    }
-
 
     @Override
     public String getTableName() {

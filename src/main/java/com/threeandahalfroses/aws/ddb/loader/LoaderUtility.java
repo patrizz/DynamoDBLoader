@@ -5,8 +5,7 @@ import com.amazonaws.services.dynamodbv2.document.Item;
 import com.amazonaws.services.dynamodbv2.document.Table;
 import com.amazonaws.services.dynamodbv2.document.TableWriteItems;
 import com.amazonaws.services.dynamodbv2.document.spec.BatchWriteItemSpec;
-import com.google.common.io.Files;
-import com.threeandahalfroses.commons.aws.s3.Utility;
+import com.threeandahalfroses.commons.general.Utility;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVRecord;
 

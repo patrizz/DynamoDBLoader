@@ -6,11 +6,11 @@ import org.json.simple.JSONObject;
  * @author patrizz on 16/11/2016.
  * @copyright 2015 Three and a half Roses
  */
-public class LoaderState {
+public class LoaderState extends JSONObject {
 
     private final JSONObject stateVariables;
 
-    enum StateName {
+    public static enum StateName {
         OFF,
         STARTING,
         DIFFS_DETERMINED_AND_SAVED,
@@ -22,7 +22,10 @@ public class LoaderState {
 
     private StateName stateName = StateName.OFF;
 
-    LoaderState(StateName stateName, JSONObject stateVariables) {
+    public LoaderState(StateName stateName) {
+        this(stateName, new JSONObject());
+    }
+    public LoaderState(StateName stateName, JSONObject stateVariables) {
         this.stateName = stateName;
         this.stateVariables = stateVariables;
     }

@@ -1,6 +1,5 @@
 package com.threeandahalfroses.aws.ddb.loader;
 
-import com.amazonaws.regions.Region;
 import com.amazonaws.services.dynamodbv2.document.*;
 import com.amazonaws.services.dynamodbv2.document.spec.DeleteItemSpec;
 import org.apache.commons.csv.CSVFormat;
@@ -8,7 +7,6 @@ import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.json.simple.JSONObject;
 import org.json.simple.parser.ParseException;
 
 import java.io.*;
@@ -24,7 +22,7 @@ public abstract class BaseDataLoader implements DataLoader {
 
     private final CsvReaderSource csvReaderSource;
     private final DynamoDB dynamodb;
-    private final LoaderStateSource loaderStateSource;
+    private final LoaderStateStore loaderStateStore;
 
     /*
     public BaseDataLoader() {
@@ -47,35 +45,29 @@ public abstract class BaseDataLoader implements DataLoader {
     */
 
     LoaderState loadLatest() {
-        return loaderStateSource.loadLatest();
+        return loaderStateStore.loadLatest();
     }
-    void save(LoaderState loaderState, boolean forceToPermanentStorage) {
-        loaderStateSource.save(loaderState, forceToPermanentStorage);
+    void save(LoaderState loaderState) throws IOException {
+        loaderStateStore.save(loaderState);
+    }
+    void save(LoaderState loaderState, boolean forceToPermanentStorage) throws IOException {
+        loaderStateStore.save(loaderState, forceToPermanentStorage);
     }
 
-
-    public BaseDataLoader(DynamoDB dynamodb, CsvReaderSource csvReaderSource, LoaderStateSource loaderStateSource) {
+    public BaseDataLoader(DynamoDB dynamodb, CsvReaderSource csvReaderSource, LoaderStateStore loaderStateStore) {
         this.dynamodb = dynamodb;
         this.csvReaderSource = csvReaderSource;
-        this.loaderStateSource = loaderStateSource;
+        this.loaderStateStore = loaderStateStore;
     }
 
     @Override
     public LoadCsvResult load() throws IOException, ParseException {
         //check if we have a previous state somewhere
-        PreviousState previousState = loadPreviousState();
-        if (previousState == null) {
-            previousState = new PreviousState();
-            previousState.setCreateDate(new Date());
-        }
-        previousState.setLastUpdate(new Date());
-        previousState.setLastRowProcessed(0l);
-        savePreviousState(previousState);
+
+        LoaderState loaderState = new LoaderState(LoaderState.StateName.STARTING);
+        loaderStateStore.save(loaderState);
         return null;
     }
-
-    protected abstract PreviousState loadPreviousState() throws IOException, ParseException;
-    protected abstract void savePreviousState(PreviousState previousState) throws IOException;
 
     public int saveFileToTable() throws IOException {
         return saveFileToTable(0, -1);

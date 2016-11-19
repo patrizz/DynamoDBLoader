@@ -11,6 +11,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.URL;
@@ -76,7 +77,12 @@ public class EnterpriseLoaderTest {
 
     @Test
     public void test_diffs_empty_table() throws IOException {
-        EnterpriseLoader enterpriseLoader = new EnterpriseLoader(dynamodb, new FileBasedCsvReaderSource(filename, true));
+        File tempFile = File.createTempFile("tmp", "el");
+        EnterpriseLoader enterpriseLoader = new EnterpriseLoader(
+                dynamodb,
+                new FileBasedCsvReaderSource(filename, true),
+                new TestLoaderStateStoreImpl(tempFile)
+        );
 
         createTable(enterpriseLoader.getTableName());
 
@@ -103,7 +109,7 @@ public class EnterpriseLoaderTest {
             "0205.350.681","AC","000","2","416",01-03-1966
          */
 
-        EnterpriseLoader enterpriseLoader = new EnterpriseLoader(dynamodb, new FileBasedCsvReaderSource(filename2, true));
+        EnterpriseLoader enterpriseLoader = new EnterpriseLoader(dynamodb, new FileBasedCsvReaderSource(filename2, true), new TestLoaderStateStoreImpl(File.createTempFile("test", "el")));
 
         Table table = createTable(enterpriseLoader.getTableName());
 
@@ -130,14 +136,14 @@ public class EnterpriseLoaderTest {
 
     @Test
     public void test_loadFileIDs() throws IOException {
-        EnterpriseLoader enterpriseLoader = new EnterpriseLoader(dynamodb, new FileBasedCsvReaderSource(filename, true));
+        EnterpriseLoader enterpriseLoader = new EnterpriseLoader(dynamodb, new FileBasedCsvReaderSource(filename, true), new TestLoaderStateStoreImpl(File.createTempFile("test", "el")));
         Map<String, String> maps = enterpriseLoader.loadAllItemIDsFromFile();
         assertEquals("wrong number of items", 429, maps.values().size());
     }
 
     @Test
     public void test_saveToTable_partially() throws IOException {
-        EnterpriseLoader enterpriseLoader = new EnterpriseLoader(dynamodb, new FileBasedCsvReaderSource(filename, true));
+        EnterpriseLoader enterpriseLoader = new EnterpriseLoader(dynamodb, new FileBasedCsvReaderSource(filename, true), new TestLoaderStateStoreImpl(File.createTempFile("test", "el")));
         String tableName = enterpriseLoader.getTableName();
         createTable(tableName);
         enterpriseLoader.saveFileToTable(0, 10);
