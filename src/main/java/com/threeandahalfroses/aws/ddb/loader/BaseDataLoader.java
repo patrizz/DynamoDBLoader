@@ -7,6 +7,7 @@ import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.simple.JSONObject;
 import org.json.simple.parser.ParseException;
 
 import java.io.*;
@@ -47,6 +48,7 @@ public abstract class BaseDataLoader implements DataLoader {
     LoaderState loadLatest() {
         return loaderStateStore.loadLatest();
     }
+
     void save(LoaderState loaderState) throws IOException {
         loaderStateStore.save(loaderState);
     }
@@ -64,8 +66,54 @@ public abstract class BaseDataLoader implements DataLoader {
     public LoadCsvResult load() throws IOException, ParseException {
         //check if we have a previous state somewhere
 
-        LoaderState loaderState = new LoaderState(LoaderState.StateName.STARTING);
-        loaderStateStore.save(loaderState);
+        LOGGER.info("Getting latest loader state for table: " + getTableName());
+        LoaderState loaderState = loadLatest();
+        if (loaderState != null) {
+            LOGGER.info("Latest state found: " + loaderState.toJSONString());
+        } else {
+            LOGGER.info("No latest state found, creating one");
+            loaderState = new LoaderState(LoaderState.StateName.STARTING);
+            loaderStateStore.save(loaderState);
+        }
+
+        if (loaderState.getStateName() == LoaderState.StateName.STARTING) {
+            LOGGER.info("STARTING");
+            File file = File.createTempFile("tmp", ".csv");
+            LOGGER.info("done STARTING");
+            JSONObject jsonObject = new JSONObject();
+            jsonObject.put("filename", file.getAbsoluteFile());
+            loaderState.changeState(
+                    LoaderState.StateName.DIFFS_DETERMINED_AND_SAVED,
+                    jsonObject
+            );
+            loaderStateStore.save(loaderState, true);
+        }
+
+        if (loaderState.getStateName() == LoaderState.StateName.DIFFS_DETERMINED_AND_SAVED) {
+            LOGGER.info("Deleting items from dynamodb");
+
+            LOGGER.info("items deleted from dynamodb");
+            loaderState.changeState(LoaderState.StateName.DELETED_ITEMS_REMOVED_FROM_DYNAMODB);
+        }
+
+        if (loaderState.getStateName() == LoaderState.StateName.DELETED_ITEMS_REMOVED_FROM_DYNAMODB) {
+            LOGGER.info("file processing started");
+            JSONObject jsonObject = new JSONObject();
+            jsonObject.put("at-row", 0);
+            loaderState.changeState(LoaderState.StateName.PROCESSING_FILE, jsonObject);
+        }
+
+        if (loaderState.getStateName() == LoaderState.StateName.PROCESSING_FILE) {
+            LOGGER.info(String.format("processing file at row %d", loaderState.getStateVariables().get("at-row")));
+            JSONObject jsonObject = new JSONObject();
+
+
+            jsonObject.put("at-row", 0);
+            loaderState.changeState(LoaderState.StateName.PROCESSING_FILE, jsonObject);
+
+
+        }
+
         return null;
     }
 

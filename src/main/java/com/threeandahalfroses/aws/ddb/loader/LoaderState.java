@@ -8,7 +8,6 @@ import org.json.simple.JSONObject;
  */
 public class LoaderState extends JSONObject {
 
-    private final JSONObject stateVariables;
 
     public static enum StateName {
         OFF,
@@ -21,6 +20,16 @@ public class LoaderState extends JSONObject {
     }
 
     private StateName stateName = StateName.OFF;
+    private JSONObject stateVariables;
+
+    public void changeState(StateName stateName) {
+        changeState(stateName, new JSONObject());
+    }
+    public void changeState(StateName stateName, JSONObject stateVariables) {
+        this.stateName = stateName;
+        this.stateVariables = stateVariables;
+    }
+
 
     public LoaderState(StateName stateName) {
         this(stateName, new JSONObject());
