@@ -22,6 +22,7 @@ public class TestLoaderStateStoreImpl implements LoaderStateStore {
 
     public TestLoaderStateStoreImpl(File tempStateFile) {
         this.tempStateFile = tempStateFile;
+
     }
 
     public TestLoaderStateStoreImpl(String tempStateFilename) {
@@ -32,6 +33,7 @@ public class TestLoaderStateStoreImpl implements LoaderStateStore {
     public LoaderState loadLatest() {
         LoaderState loaderState = null;
         try {
+
             JSONObject jsonObject = (JSONObject) JSONUtility.toJSONAware(new FileReader(this.tempStateFile));
             loaderState = new LoaderState(
                     LoaderState.StateName.valueOf((String) jsonObject.get(ATTR_NAME)),
@@ -61,7 +63,12 @@ public class TestLoaderStateStoreImpl implements LoaderStateStore {
     @Override
     public void save(LoaderState loaderState, boolean forceToPermanentStorage) throws IOException {
         String jsonString = getJSONString(loaderState);
-        IOUtils.write(jsonString, new FileWriter(tempStateFile));
+        FileWriter fileWriter = new FileWriter(tempStateFile);
+        try {
+            IOUtils.write(jsonString, fileWriter);
+        } finally {
+            IOUtils.closeQuietly(fileWriter);
+        }
     }
 
     @Override

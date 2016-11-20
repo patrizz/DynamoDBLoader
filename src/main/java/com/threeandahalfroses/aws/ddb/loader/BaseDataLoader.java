@@ -1,7 +1,9 @@
 package com.threeandahalfroses.aws.ddb.loader;
 
 import com.amazonaws.services.dynamodbv2.document.*;
+import com.amazonaws.services.dynamodbv2.document.spec.BatchWriteItemSpec;
 import com.amazonaws.services.dynamodbv2.document.spec.DeleteItemSpec;
+import com.amazonaws.services.dynamodbv2.model.WriteRequest;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
@@ -11,6 +13,7 @@ import org.json.simple.JSONObject;
 import org.json.simple.parser.ParseException;
 
 import java.io.*;
+import java.nio.Buffer;
 import java.util.*;
 
 /**
@@ -73,12 +76,23 @@ public abstract class BaseDataLoader implements DataLoader {
         } else {
             LOGGER.info("No latest state found, creating one");
             loaderState = new LoaderState(LoaderState.StateName.STARTING);
-            loaderStateStore.save(loaderState);
+            loaderStateStore.save(loaderState, true);
         }
 
         if (loaderState.getStateName() == LoaderState.StateName.STARTING) {
             LOGGER.info("STARTING");
             File file = File.createTempFile("tmp", ".csv");
+            Diffs diffs = getDiffs();
+            Iterator<String> deletedIdsIterator = diffs.getDeletedFileIds().iterator();
+            FileWriter fileWriter = new FileWriter(file);
+            LOGGER.debug("writing ids to csv file");
+            while (deletedIdsIterator.hasNext()) {
+                String id = deletedIdsIterator.next();
+                fileWriter.write(id);
+                fileWriter.write("\n");
+            }
+            LOGGER.debug("done writing ids to csv file");
+            fileWriter.close();
             LOGGER.info("done STARTING");
             JSONObject jsonObject = new JSONObject();
             jsonObject.put("filename", file.getAbsoluteFile());
@@ -91,30 +105,112 @@ public abstract class BaseDataLoader implements DataLoader {
 
         if (loaderState.getStateName() == LoaderState.StateName.DIFFS_DETERMINED_AND_SAVED) {
             LOGGER.info("Deleting items from dynamodb");
+            FileReader fileReader = new FileReader(new File((String)loaderState.getStateVariables().get("filename")));
+            BufferedReader bufferedReader = new BufferedReader(fileReader);
+            String readLine = null;
+            BatchWriteItemSpec batchWriteItemSpec = new BatchWriteItemSpec();
+            TableWriteItems tableWriteItems = new TableWriteItems(getTableName());
+            while ((readLine = bufferedReader.readLine()) != null) {
+                tableWriteItems.addPrimaryKeyToDelete(new PrimaryKey("uid", readLine));
+            }
+            batchWriteItemSpec.withTableWriteItems(tableWriteItems);
+
+
+
 
             LOGGER.info("items deleted from dynamodb");
             loaderState.changeState(LoaderState.StateName.DELETED_ITEMS_REMOVED_FROM_DYNAMODB);
+            loaderStateStore.save(loaderState, true);
         }
 
         if (loaderState.getStateName() == LoaderState.StateName.DELETED_ITEMS_REMOVED_FROM_DYNAMODB) {
-            LOGGER.info("file processing started");
+            LOGGER.info("file processing starting");
             JSONObject jsonObject = new JSONObject();
             jsonObject.put("at-row", 0);
             loaderState.changeState(LoaderState.StateName.PROCESSING_FILE, jsonObject);
+            loaderStateStore.save(loaderState, true);
+            LOGGER.info("file processing started");
         }
 
         if (loaderState.getStateName() == LoaderState.StateName.PROCESSING_FILE) {
             LOGGER.info(String.format("processing file at row %d", loaderState.getStateVariables().get("at-row")));
-            JSONObject jsonObject = new JSONObject();
 
+            JSONObject jsonObject = loaderState.getStateVariables();
+            int atRow = (int) jsonObject.getOrDefault("at-row", 0);
 
-            jsonObject.put("at-row", 0);
-            loaderState.changeState(LoaderState.StateName.PROCESSING_FILE, jsonObject);
+            BufferedReader csvReader = new BufferedReader(getCsvReader());
+            //skip already processed rows as much as possible
+            String readLine = null;
+            long skipped = 0;
+            for (; skipped<atRow; skipped++) {
+                readLine = csvReader.readLine();
+                if (readLine==null) {
+                    JSONObject jsonObject1 = new JSONObject();
+                    jsonObject1.put("at-row", 0);
+                    jsonObject1.put("processed", skipped);
+                    loaderState.changeState(LoaderState.StateName.FILE_PROCESSED, jsonObject1);
+                    loaderStateStore.save(loaderState, true);
+                    break;
+                }
+                jsonObject.put("at-row", skipped);
+                loaderState.changeState(LoaderState.StateName.PROCESSING_FILE, jsonObject);
+                loaderStateStore.save(loaderState);
+            }
+            //now load the others
+            CSVParser csvParser = new CSVParser(csvReader, CSVFormat.EXCEL);
+            Iterator<CSVRecord> iterator = csvParser.iterator();
+            CsvToItemMapper mapper = getCsvToIndexMapper();
 
+            TableWriteItems tableWriteItems = new TableWriteItems(getTableName());
+            long counter = 0;
+            JSONObject jsonObject1 = new JSONObject();
 
+            while (iterator.hasNext()) {
+                CSVRecord csvRecord = iterator.next();
+                Item item = mapper.mapToItem(csvRecord);
+                tableWriteItems.addItemToPut(item);
+                counter++;
+                if (counter%20==0) {
+                    batchWrite(skipped, tableWriteItems, counter);
+                    tableWriteItems = new TableWriteItems(getTableName());
+                }
+                jsonObject1.put("at-row", 0);
+                jsonObject1.put("processed", (skipped+counter));
+                loaderState.changeState(LoaderState.StateName.PROCESSING_FILE, jsonObject1);
+                loaderStateStore.save(loaderState);
+            }
+            if (tableWriteItems != null && tableWriteItems.getItemsToPut() != null && tableWriteItems.getItemsToPut().size() > 0) {
+                batchWrite(skipped, tableWriteItems, counter);
+            }
+
+            jsonObject1.put("at-row", 0);
+            jsonObject1.put("processed", (skipped + counter));
+            loaderState.changeState(LoaderState.StateName.FILE_PROCESSED, jsonObject1);
+            loaderStateStore.save(loaderState, true);
+            LOGGER.info("processed all items to dynamodb, totalling: " + (skipped + counter));
         }
 
         return null;
+    }
+
+    private TableWriteItems batchWrite(long skipped, TableWriteItems tableWriteItems, long counter) {
+        LOGGER.info("writing items to dynamodb");
+        BatchWriteItemSpec batchWriteItemSpec = new BatchWriteItemSpec();
+        batchWriteItemSpec.withTableWriteItems(tableWriteItems);
+        BatchWriteItemOutcome outcome = dynamodb.batchWriteItem(batchWriteItemSpec);
+        do {
+            // Check for unprocessed keys which could happen if you exceed provisioned throughput
+            Map<String, List<WriteRequest>> unprocessedItems = outcome.getUnprocessedItems();
+            if (outcome.getUnprocessedItems().size() == 0) {
+                LOGGER.debug("No unprocessed items found");
+            } else {
+                LOGGER.debug("Retrieving the unprocessed items");
+                outcome = dynamodb.batchWriteItemUnprocessed(unprocessedItems);
+            }
+        } while (outcome.getUnprocessedItems().size() > 0);
+        tableWriteItems = new TableWriteItems(getTableName());
+        LOGGER.info("written items to dynamodb, totalling: " + counter + " and first skipped " + skipped + " items.");
+        return tableWriteItems;
     }
 
     public int saveFileToTable() throws IOException {
@@ -189,7 +285,7 @@ public abstract class BaseDataLoader implements DataLoader {
 
     public Map<String, String> loadAllItemIDsFromTable() {
         Table table = this.dynamodb.getTable(getTableName());
-        ItemCollection<ScanOutcome> itemCollection = table.scan(new ScanFilter("uid").contains(":"));
+        ItemCollection<ScanOutcome> itemCollection = table.scan(new ScanFilter("uid").exists());
         Iterator<Item> iterator = itemCollection.iterator();
         Map<String, String> stringList = new HashMap<String, String>();
         int i = 0;

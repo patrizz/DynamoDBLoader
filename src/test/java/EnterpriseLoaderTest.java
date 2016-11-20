@@ -3,17 +3,20 @@ import com.amazonaws.services.dynamodbv2.local.embedded.DynamoDBEmbedded;
 import com.amazonaws.services.dynamodbv2.model.*;
 import com.threeandahalfroses.aws.ddb.loader.Diffs;
 import com.threeandahalfroses.aws.ddb.loader.EnterpriseLoader;
+import com.threeandahalfroses.aws.ddb.loader.LoadCsvResult;
 import com.threeandahalfroses.aws.ddb.loader.LoaderUtility;
 import com.threeandahalfroses.commons.aws.dynamodb.DynamoDBUtility;
+import com.threeandahalfroses.commons.general.JSONUtility;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.simple.JSONAware;
+import org.json.simple.JSONObject;
+import org.json.simple.parser.JSONParser;
+import org.json.simple.parser.ParseException;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.*;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
@@ -156,7 +159,28 @@ public class EnterpriseLoaderTest {
         assertEquals("wrong item count2", new Long(142), itemCount2);
     }
 
+    @Test
+    public void test_load() throws IOException, ParseException {
+        File tempFile1 = File.createTempFile("test", ".el");
+        LOGGER.info("temp file: " + tempFile1.getAbsolutePath());
+        EnterpriseLoader enterpriseLoader1 = new EnterpriseLoader(dynamodb, new FileBasedCsvReaderSource(filename, true), new TestLoaderStateStoreImpl(tempFile1));
+        String tableName = enterpriseLoader1.getTableName();
+        createTable(tableName);
+        enterpriseLoader1.saveFileToTable(0, 142);
 
+        File tempFile2 = File.createTempFile("test", ".el");
+        EnterpriseLoader enterpriseLoader2 = new EnterpriseLoader(dynamodb, new FileBasedCsvReaderSource(filename2, true), new TestLoaderStateStoreImpl(tempFile2));
+        LoadCsvResult result = enterpriseLoader2.load();
+
+        JSONAware jsonAware = JSONUtility.toJSONAware(new FileReader(tempFile2));
+        assertNotNull("JSONAware null", jsonAware);
+        assertEquals("JSONAware not object", JSONObject.class, jsonAware.getClass());
+        JSONObject jsonObject = (JSONObject) jsonAware;
+        assertNotNull("name null", jsonObject.get("name"));
+        assertNotNull("variables null", jsonObject.get("variables"));
+        JSONObject variablesJsonObject = (JSONObject) jsonObject.get("variables");
+        assertEquals("processed rows wrong", 520l, variablesJsonObject.get("processed"));
+    }
 
 
 
